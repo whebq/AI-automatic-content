@@ -1,0 +1,37 @@
+# Secrets
+.env
+.env.local
+.env.*.local
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Media / outputs
+*.mp3
+*.mp4
+*.MP4
+*.webp
+*.log
+assets/output/*
+!assets/output/.gitkeep
+
+# Temp / local analysis
+.tmp_*/
+output/
+assets/analysis/
+assets/reference_analysis/
+assets/references/analysis_frames/
+assets/overlays/**/*
+!assets/overlays/**/.gitkeep
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
