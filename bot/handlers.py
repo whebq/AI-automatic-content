@@ -10,9 +10,8 @@ from bot.keyboards import (
     BTN_BRAINSTORM_TOPIC,
     BTN_CHANNEL_POST,
     BTN_GENERATE_VIDEO,
-    BTN_RUBRIC_NEWS,
-    BTN_RUBRIC_STORY,
-    BTN_RUBRIC_TIPS,
+    BTN_HELP,
+    BTN_MAIN_MENU,
     BTN_VOICE_SCRIPT,
     CB_BRAINSTORM_GENERATE,
     CB_BRAINSTORM_RUN,
@@ -22,12 +21,12 @@ from bot.keyboards import (
     CB_POST_FROM_VIDEO,
     CB_POST_PUBLISH,
     CB_POST_REGENERATE,
-    RUBRIC_BUTTONS,
     brainstorm_prompt_keyboard,
     brainstorm_reply_keyboard,
     channel_post_preview_keyboard,
     channel_post_type_keyboard,
     main_menu_keyboard,
+    nav_keyboard,
     post_video_keyboard,
     rubric_keyboard,
 )
@@ -58,13 +57,30 @@ router = Router()
 pipeline = VideoPipeline()
 
 WELCOME_TEXT = (
-    "👋 Личный контент-конвейер для Shorts.\n\n"
-    "• «🚀 Сгенерировать видео» — формат → промпт → озвучка\n"
-    "• «💡 Придумать тему» — формат → диалог с ИИ → промпт → генерация\n"
-    "• «🎙 Озвучить сценарий» — пришли готовый текст, получи mp3\n"
-    "• «📝 Сделать пост» — пост для Telegram-канала (тема или к ролику)\n\n"
-    "Форматы: 📖 История · 📰 Новость · 💡 Фишка/репо\n"
-    "Монтаж и субтитры — в CapCut."
+    "<b>ИИ-агент</b> для генерации контента и ведения соцсетей.\n\n"
+    "🚀 Видео — сценарий, озвучка и заготовка для монтажа\n"
+    "💡 Тема — подбор идеи с ИИ\n"
+    "🎙 Озвучка — готовый текст в mp3\n"
+    "📝 Пост — текст для Telegram-канала\n"
+    "📖 Инструкция — как писать промпты и пользоваться ботом\n\n"
+    "Форматы: История · Новость · Фишка"
+)
+
+INSTRUCTION_TEXT = (
+    "📖 <b>Как пользоваться ботом</b>\n\n"
+    "🚀 <b>Сгенерировать видео</b>\n"
+    "Выбери формат → напиши тему одним сообщением → получишь сценарий, mp3 и mp4-заготовку.\n\n"
+    "💡 <b>Придумать тему</b>\n"
+    "Выбери формат → коротко опиши нишу или идею → когда всё ясно, нажми «Сформировать промпт» → проверь текст и запусти генерацию.\n\n"
+    "✍️ <b>Хороший промпт</b>\n"
+    "Одна конкретная идея: кто / что случилось / зачем зрителю. Не «сделай про ИИ», а «OpenAI купила X — что это значит для разработчиков».\n\n"
+    "🎙 <b>Озвучка</b>\n"
+    "Каждая фраза с новой строки, цифры словами, без пояснений в скобках.\n\n"
+    "📝 <b>Пост</b>\n"
+    "Пост на тему — разбор для канала. Пост к ролику — тема + сценарий Shorts, в Telegram получишь полный текст.\n\n"
+    "🎬 <b>Что на выходе</b>\n"
+    "Видео с фоном и голосом — это заготовка. Субтитры и вставки добавляешь сам при монтаже.\n\n"
+    "📄 Подробная инструкция — в файле <code>instructions.md</code> в репозитории."
 )
 
 FLOW_GENERATE = "generate"
@@ -114,7 +130,7 @@ VOICE_SCRIPT_PROMPT = (
     "• Каждая фраза — с новой строки\n"
     "• Цифры словами: «сорок шесть миллионов»\n"
     "• Без пояснений — только текст\n\n"
-    "Верну mp3 для CapCut."
+    "Верну mp3 для монтажа."
 )
 
 CHANNEL_POST_TYPE_PROMPT = (
@@ -161,6 +177,18 @@ async def _show_main_menu(message: Message, state: FSMContext) -> None:
     await message.answer(WELCOME_TEXT, reply_markup=main_menu_keyboard())
 
 
+async def _go_main_menu_if_requested(message: Message, state: FSMContext) -> bool:
+    """Возврат в главное меню по reply-кнопке. True = обработано."""
+    if (message.text or "").strip() != BTN_MAIN_MENU:
+        return False
+    await _show_main_menu(message, state)
+    return True
+
+
+async def _show_instructions(message: Message) -> None:
+    await message.answer(INSTRUCTION_TEXT, reply_markup=main_menu_keyboard())
+
+
 def _save_session(result: PipelineResult) -> dict:
     return {
         "script": result.script,
@@ -201,7 +229,7 @@ async def _send_video_result(
     await bot.send_video(
         chat_id=chat_id,
         video=FSInputFile(result.video_path, filename="result.mp4"),
-        caption="✅ Заготовка готова — монтируй в CapCut.",
+        caption="✅ Заготовка готова — дальше монтаж и субтитры.",
         reply_markup=post_video_keyboard(),
         supports_streaming=True,
     )
@@ -209,7 +237,7 @@ async def _send_video_result(
     await bot.send_audio(
         chat_id=chat_id,
         audio=FSInputFile(result.audio_path, filename="voiceover.mp3"),
-        caption="🎙 Озвучка (mp3 для CapCut)",
+        caption="🎙 Озвучка (mp3 для монтажа)",
     )
 
     await bot.send_message(
@@ -399,6 +427,7 @@ async def _run_channel_post(
         )
         await state.update_data(**_save_channel_post(sanitized))
         await state.set_state(PanelStates.main_menu)
+        await message.answer("Выбери действие:", reply_markup=main_menu_keyboard())
     except PipelineError as exc:
         logger.exception("Channel post failed at stage: %s", exc.stage)
         await _safe_status_error(
@@ -530,16 +559,17 @@ async def cmd_help(message: Message) -> None:
     if not _is_allowed_user(message.from_user.id if message.from_user else None):
         return
 
-    await message.answer(
-        "Панель управления:\n"
-        "1. «💡 Придумать тему» — формат → диалог → промпт → генерация\n"
-        "2. «🚀 Сгенерировать видео» → формат → промпт → сценарий + озвучка\n"
-        "3. «🎙 Озвучить сценарий» — готовый текст → mp3 без видео\n"
-        f"4. «📝 Сделать пост» — пост для Telegram-канала {TELEGRAM_CHANNEL_NAME}\n"
-        "5. «✏️ Откорректировать сценарий» — вставь свой текст, переозвучка + новое видео\n\n"
-        "Видео — синий фон + голос. Субтитры и вставки — в CapCut.",
-        reply_markup=main_menu_keyboard(),
-    )
+    await _show_instructions(message)
+
+
+@router.message(PanelStates.main_menu, F.text == BTN_HELP)
+async def on_help_button(message: Message, state: FSMContext) -> None:
+    if not _is_allowed_user(message.from_user.id if message.from_user else None):
+        await _deny_access(message)
+        return
+
+    await state.set_state(PanelStates.main_menu)
+    await _show_instructions(message)
 
 
 @router.message(PanelStates.main_menu, F.text == BTN_BRAINSTORM_TOPIC)
@@ -559,19 +589,15 @@ async def on_brainstorm_message(message: Message, state: FSMContext) -> None:
         await _deny_access(message)
         return
 
-    if message.text == BTN_GENERATE_VIDEO:
-        await _start_rubric_selection(message, state, flow_mode=FLOW_GENERATE)
-        return
-
-    if message.text == BTN_BRAINSTORM_TOPIC:
-        await _start_rubric_selection(
-            message, state, flow_mode=FLOW_BRAINSTORM, prompt_text=BRAINSTORM_PICK_RUBRIC
-        )
+    if await _go_main_menu_if_requested(message, state):
         return
 
     user_message = (message.text or "").strip()
     if not user_message:
-        await message.answer("Напиши сообщение текстом — обсудим идею для ролика.")
+        await message.answer(
+            "Напиши сообщение текстом — обсудим идею для ролика.",
+            reply_markup=nav_keyboard(),
+        )
         return
 
     status_message = await message.answer("🔍 Ищу в интернете...")
@@ -681,25 +707,13 @@ async def on_channel_post_type_selected(message: Message, state: FSMContext) -> 
         await _deny_access(message)
         return
 
-    if message.text in {BTN_GENERATE_VIDEO, BTN_BRAINSTORM_TOPIC, BTN_CHANNEL_POST, BTN_VOICE_SCRIPT}:
-        if message.text == BTN_CHANNEL_POST:
-            await state.set_state(PanelStates.waiting_channel_post_type)
-            await message.answer(CHANNEL_POST_TYPE_PROMPT, reply_markup=channel_post_type_keyboard())
-        elif message.text == BTN_VOICE_SCRIPT:
-            await state.set_state(PanelStates.waiting_voiceover_script)
-            await message.answer(VOICE_SCRIPT_PROMPT, reply_markup=main_menu_keyboard())
-        elif message.text == BTN_BRAINSTORM_TOPIC:
-            await _start_rubric_selection(
-                message, state, flow_mode=FLOW_BRAINSTORM, prompt_text=BRAINSTORM_PICK_RUBRIC
-            )
-        else:
-            await _start_rubric_selection(message, state, flow_mode=FLOW_GENERATE)
+    if await _go_main_menu_if_requested(message, state):
         return
 
     post_type = post_type_from_button(message.text or "")
     if post_type is None:
         await message.answer(
-            "Выбери тип поста кнопкой 👇",
+            "Выбери тип поста кнопкой ниже.",
             reply_markup=channel_post_type_keyboard(),
         )
         return
@@ -711,7 +725,7 @@ async def on_channel_post_type_selected(message: Message, state: FSMContext) -> 
         if post_type is ChannelPostType.VIDEO
         else CHANNEL_POST_TOPIC_PROMPT
     )
-    await message.answer(prompt, reply_markup=main_menu_keyboard())
+    await message.answer(prompt, reply_markup=nav_keyboard())
 
 
 @router.message(PanelStates.waiting_channel_post_topic, F.text)
@@ -720,24 +734,12 @@ async def on_channel_post_topic_received(message: Message, bot: Bot, state: FSMC
         await _deny_access(message)
         return
 
-    if message.text in {BTN_GENERATE_VIDEO, BTN_BRAINSTORM_TOPIC, BTN_CHANNEL_POST, BTN_VOICE_SCRIPT}:
-        if message.text == BTN_CHANNEL_POST:
-            await state.set_state(PanelStates.waiting_channel_post_type)
-            await message.answer(CHANNEL_POST_TYPE_PROMPT, reply_markup=channel_post_type_keyboard())
-        elif message.text == BTN_VOICE_SCRIPT:
-            await state.set_state(PanelStates.waiting_voiceover_script)
-            await message.answer(VOICE_SCRIPT_PROMPT, reply_markup=main_menu_keyboard())
-        elif message.text == BTN_BRAINSTORM_TOPIC:
-            await _start_rubric_selection(
-                message, state, flow_mode=FLOW_BRAINSTORM, prompt_text=BRAINSTORM_PICK_RUBRIC
-            )
-        else:
-            await _start_rubric_selection(message, state, flow_mode=FLOW_GENERATE)
+    if await _go_main_menu_if_requested(message, state):
         return
 
     raw = (message.text or "").strip()
     if not raw:
-        await message.answer("Тема не может быть пустой.")
+        await message.answer("Тема не может быть пустой.", reply_markup=nav_keyboard())
         return
 
     data = await state.get_data()
@@ -824,7 +826,7 @@ async def on_post_edit(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
     await state.set_state(PanelStates.waiting_channel_post_edit)
     if callback.message:
-        await callback.message.answer(CHANNEL_POST_EDIT_PROMPT, reply_markup=main_menu_keyboard())
+        await callback.message.answer(CHANNEL_POST_EDIT_PROMPT, reply_markup=nav_keyboard())
 
 
 @router.callback_query(F.data == CB_POST_FROM_VIDEO)
@@ -861,14 +863,12 @@ async def on_channel_post_edited(message: Message, bot: Bot, state: FSMContext) 
         await _deny_access(message)
         return
 
-    if message.text == BTN_CHANNEL_POST:
-        await state.set_state(PanelStates.waiting_channel_post_type)
-        await message.answer(CHANNEL_POST_TYPE_PROMPT, reply_markup=channel_post_type_keyboard())
+    if await _go_main_menu_if_requested(message, state):
         return
 
     post_text = (message.text or "").strip()
     if not post_text:
-        await message.answer("Текст поста не может быть пустым.")
+        await message.answer("Текст поста не может быть пустым.", reply_markup=nav_keyboard())
         return
 
     post_text = prepare_channel_post_html(post_text, TELEGRAM_CHANNEL_HANDLE)
@@ -888,6 +888,7 @@ async def on_channel_post_edited(message: Message, bot: Bot, state: FSMContext) 
     )
     await state.update_data(**_save_channel_post(result))
     await state.set_state(PanelStates.main_menu)
+    await message.answer("Выбери действие:", reply_markup=main_menu_keyboard())
 
 
 @router.message(PanelStates.main_menu, F.text == BTN_VOICE_SCRIPT)
@@ -897,7 +898,7 @@ async def on_voice_script_start(message: Message, state: FSMContext) -> None:
         return
 
     await state.set_state(PanelStates.waiting_voiceover_script)
-    await message.answer(VOICE_SCRIPT_PROMPT, reply_markup=main_menu_keyboard())
+    await message.answer(VOICE_SCRIPT_PROMPT, reply_markup=nav_keyboard())
 
 
 @router.message(PanelStates.main_menu, F.text == BTN_GENERATE_VIDEO)
@@ -915,18 +916,12 @@ async def on_rubric_selected(message: Message, state: FSMContext) -> None:
         await _deny_access(message)
         return
 
-    if message.text in {BTN_GENERATE_VIDEO, BTN_BRAINSTORM_TOPIC}:
-        if message.text == BTN_BRAINSTORM_TOPIC:
-            await _start_rubric_selection(
-                message, state, flow_mode=FLOW_BRAINSTORM, prompt_text=BRAINSTORM_PICK_RUBRIC
-            )
-        else:
-            await _start_rubric_selection(message, state, flow_mode=FLOW_GENERATE)
+    if await _go_main_menu_if_requested(message, state):
         return
 
     rubric = rubric_from_button(message.text or "")
     if rubric is None:
-        await message.answer("Выбери формат кнопкой ниже 👇", reply_markup=rubric_keyboard())
+        await message.answer("Выбери формат кнопкой ниже.", reply_markup=rubric_keyboard())
         return
 
     data = await state.get_data()
@@ -938,12 +933,12 @@ async def on_rubric_selected(message: Message, state: FSMContext) -> None:
         await state.update_data(brainstorm_history=[])
         await message.answer(
             BRAINSTORM_INTRO_BY_RUBRIC[rubric.value],
-            reply_markup=main_menu_keyboard(),
+            reply_markup=nav_keyboard(),
         )
         return
 
     await state.set_state(PanelStates.waiting_video_topic)
-    await message.answer(TOPIC_PROMPTS[rubric], reply_markup=main_menu_keyboard())
+    await message.answer(TOPIC_PROMPTS[rubric], reply_markup=nav_keyboard())
 
 
 @router.message(PanelStates.waiting_video_topic, F.text)
@@ -952,23 +947,15 @@ async def on_video_topic_received(message: Message, bot: Bot, state: FSMContext)
         await _deny_access(message)
         return
 
-    if message.text in {BTN_GENERATE_VIDEO, BTN_BRAINSTORM_TOPIC, *RUBRIC_BUTTONS}:
-        if message.text == BTN_BRAINSTORM_TOPIC:
-            await _start_rubric_selection(
-                message, state, flow_mode=FLOW_BRAINSTORM, prompt_text=BRAINSTORM_PICK_RUBRIC
-            )
-        elif message.text == BTN_GENERATE_VIDEO:
-            await _start_rubric_selection(message, state, flow_mode=FLOW_GENERATE)
-        elif message.text in RUBRIC_BUTTONS:
-            rubric = rubric_from_button(message.text)
-            if rubric:
-                await state.update_data(rubric=rubric.value)
-                await message.answer(TOPIC_PROMPTS[rubric], reply_markup=main_menu_keyboard())
+    if await _go_main_menu_if_requested(message, state):
         return
 
     idea = (message.text or "").strip()
     if not idea:
-        await message.answer("Тема не может быть пустой. Отправь текст идеи или промпта.")
+        await message.answer(
+            "Тема не может быть пустой. Отправь текст идеи или промпта.",
+            reply_markup=nav_keyboard(),
+        )
         return
 
     data = await state.get_data()
@@ -992,7 +979,7 @@ async def on_edit_script_callback(callback: CallbackQuery, state: FSMContext) ->
     await state.set_state(PanelStates.waiting_manual_script)
 
     if callback.message:
-        await callback.message.answer(EDIT_SCRIPT_PROMPT, reply_markup=main_menu_keyboard())
+        await callback.message.answer(EDIT_SCRIPT_PROMPT, reply_markup=nav_keyboard())
 
 
 @router.message(PanelStates.waiting_manual_script, F.text)
@@ -1001,13 +988,15 @@ async def on_manual_script_received(message: Message, bot: Bot, state: FSMContex
         await _deny_access(message)
         return
 
-    if message.text == BTN_GENERATE_VIDEO:
-        await _start_rubric_selection(message, state, flow_mode=FLOW_GENERATE)
+    if await _go_main_menu_if_requested(message, state):
         return
 
     script = (message.text or "").strip()
     if not script:
-        await message.answer("Сценарий не может быть пустым. Отправь полный текст для озвучки.")
+        await message.answer(
+            "Сценарий не может быть пустым. Отправь полный текст для озвучки.",
+            reply_markup=nav_keyboard(),
+        )
         return
 
     await _run_script_correction(message, bot, state, script)
@@ -1019,24 +1008,15 @@ async def on_voiceover_script_received(message: Message, bot: Bot, state: FSMCon
         await _deny_access(message)
         return
 
-    if message.text in {BTN_GENERATE_VIDEO, BTN_BRAINSTORM_TOPIC, BTN_VOICE_SCRIPT, BTN_CHANNEL_POST}:
-        if message.text == BTN_VOICE_SCRIPT:
-            await state.set_state(PanelStates.waiting_voiceover_script)
-            await message.answer(VOICE_SCRIPT_PROMPT, reply_markup=main_menu_keyboard())
-        elif message.text == BTN_BRAINSTORM_TOPIC:
-            await _start_rubric_selection(
-                message, state, flow_mode=FLOW_BRAINSTORM, prompt_text=BRAINSTORM_PICK_RUBRIC
-            )
-        elif message.text == BTN_CHANNEL_POST:
-            await state.set_state(PanelStates.waiting_channel_post_type)
-            await message.answer(CHANNEL_POST_TYPE_PROMPT, reply_markup=channel_post_type_keyboard())
-        else:
-            await _start_rubric_selection(message, state, flow_mode=FLOW_GENERATE)
+    if await _go_main_menu_if_requested(message, state):
         return
 
     script = (message.text or "").strip()
     if not script:
-        await message.answer("Сценарий не может быть пустым. Отправь текст для озвучки.")
+        await message.answer(
+            "Сценарий не может быть пустым. Отправь текст для озвучки.",
+            reply_markup=nav_keyboard(),
+        )
         return
 
     data = await state.get_data()
@@ -1062,7 +1042,7 @@ async def on_brainstorm_fallback(message: Message) -> None:
 
     await message.answer(
         "Напиши текстом, о чём хочешь снять ролик — или нажми кнопки под моим ответом.",
-        reply_markup=main_menu_keyboard(),
+        reply_markup=nav_keyboard(),
     )
 
 
@@ -1072,7 +1052,7 @@ async def on_main_menu_fallback(message: Message) -> None:
         return
 
     await message.answer(
-        "Используй кнопки на клавиатуре 👇",
+        "Выбери действие на клавиатуре.",
         reply_markup=main_menu_keyboard(),
     )
 
@@ -1082,7 +1062,7 @@ async def on_waiting_rubric_fallback(message: Message) -> None:
     if not _is_allowed_user(message.from_user.id if message.from_user else None):
         return
 
-    await message.answer("Выбери формат ролика кнопкой 👇", reply_markup=rubric_keyboard())
+    await message.answer("Выбери формат ролика кнопкой ниже.", reply_markup=rubric_keyboard())
 
 
 @router.message(PanelStates.waiting_video_topic)
@@ -1090,7 +1070,10 @@ async def on_waiting_topic_fallback(message: Message) -> None:
     if not _is_allowed_user(message.from_user.id if message.from_user else None):
         return
 
-    await message.answer("📝 Отправь текстовую тему или промпт для видео.")
+    await message.answer(
+        "📝 Отправь текстовую тему или промпт для видео.",
+        reply_markup=nav_keyboard(),
+    )
 
 
 @router.message(PanelStates.waiting_manual_script)
@@ -1098,7 +1081,10 @@ async def on_waiting_manual_script_fallback(message: Message) -> None:
     if not _is_allowed_user(message.from_user.id if message.from_user else None):
         return
 
-    await message.answer("✏️ Отправь полный исправленный сценарий текстом.")
+    await message.answer(
+        "✏️ Отправь полный исправленный сценарий текстом.",
+        reply_markup=nav_keyboard(),
+    )
 
 
 @router.message(PanelStates.waiting_channel_post_type)
@@ -1107,7 +1093,7 @@ async def on_waiting_channel_post_type_fallback(message: Message) -> None:
         return
 
     await message.answer(
-        "Выбери тип поста кнопкой 👇",
+        "Выбери тип поста кнопкой ниже.",
         reply_markup=channel_post_type_keyboard(),
     )
 
@@ -1117,7 +1103,7 @@ async def on_waiting_channel_post_topic_fallback(message: Message) -> None:
     if not _is_allowed_user(message.from_user.id if message.from_user else None):
         return
 
-    await message.answer("📝 Отправь тему поста текстом.")
+    await message.answer("📝 Отправь тему поста текстом.", reply_markup=nav_keyboard())
 
 
 @router.message(PanelStates.waiting_channel_post_edit)
@@ -1125,7 +1111,7 @@ async def on_waiting_channel_post_edit_fallback(message: Message) -> None:
     if not _is_allowed_user(message.from_user.id if message.from_user else None):
         return
 
-    await message.answer("✏️ Отправь полный текст поста.")
+    await message.answer("✏️ Отправь полный текст поста.", reply_markup=nav_keyboard())
 
 
 @router.message(PanelStates.waiting_voiceover_script)
@@ -1135,5 +1121,5 @@ async def on_waiting_voiceover_fallback(message: Message) -> None:
 
     await message.answer(
         "🎙 Отправь текст сценария для озвучки.",
-        reply_markup=main_menu_keyboard(),
+        reply_markup=nav_keyboard(),
     )

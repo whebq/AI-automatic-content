@@ -1,6 +1,6 @@
 # shorts-generator
 
-Telegram-бот и Python-пайплайн для вертикальных Shorts (1080×1920): сценарий → озвучка → видео-заготовка (фон + голос). Субтитры и оверлеи монтируются вручную в CapCut.
+Telegram-бот и Python-пайплайн для вертикальных Shorts (1080×1920): сценарий → озвучка → видео-заготовка (фон + голос). Субтитры и оверлеи добавляются вручную при монтаже.
 
 ## Стек
 
@@ -36,7 +36,7 @@ models.py                # dataclasses результатов
 assets/
   backgrounds/           # texture_navy.jpg
   references/rubrics/    # style_block.txt по рубрикам
-  overlays/              # локальные вставки для CapCut (не в git)
+  overlays/              # локальные вставки для монтажа (не в git)
   output/                # временный вывод пайплайна
 ```
 
@@ -163,7 +163,7 @@ audio = await pipe.voice_script(script)
 post = await pipe.generate_channel_post(idea="...", post_type=...)
 ```
 
-`PipelineResult`: пути к видео/аудио, текст сценария, сегменты субтитров (тайминги для CapCut).
+`PipelineResult`: пути к видео/аудио, текст сценария, сегменты субтитров (тайминги для монтажа).
 
 ## Assets
 
@@ -172,7 +172,7 @@ post = await pipe.generate_channel_post(idea="...", post_type=...)
 | `assets/backgrounds/texture_navy.jpg` | да | Фон заготовки |
 | `assets/references/rubrics/*/style_block.txt` | да | Стиль рубрики в промпте |
 | `assets/references/rubrics/rubric_analysis.json` | да | Разбор эталонных сценариев |
-| `assets/overlays/**` | нет (только `.gitkeep`) | Локальные мемы/скрины для CapCut |
+| `assets/overlays/**` | нет (только `.gitkeep`) | Локальные мемы/скрины для монтажа |
 | `assets/output/**` | нет | Временные файлы пайплайна |
 
 Свои референс-ролики кладите локально; `*.mp4` в `.gitignore`.
